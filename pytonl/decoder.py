@@ -79,8 +79,12 @@ class TONLDecoder:
                 continue
 
             if line.startswith("#version"):
-                # Version check could be added here
-                pass
+                # Expect exactly "#version 1.0" for now.
+                # Allow arbitrary internal whitespace but require the
+                # numeric version to be 1.0.
+                parts = line.split()
+                if len(parts) != 2 or parts[0] != "#version" or parts[1] != "1.0":
+                    raise ValueError(f"Unsupported TONL version header: {line!r}")
             elif line.startswith("#delimiter"):
                 # Use original line to preserve whitespace delimiter
                 # But we need to handle indentation? Headers shouldn't be indented.
