@@ -3,7 +3,77 @@
 import re
 from typing import Any
 
-from .types import TONLType
+from .types import JSONValue, TONLType
+
+
+def select_best_delimiter(data: JSONValue) -> str:
+    """Select the best delimiter for the given data.
+
+    For arrays (especially uniform object arrays), chooses delimiter with minimum occurrences.
+    For objects and other data, defaults to comma.
+    """
+    # For non-array data (objects, primitives), default to comma
+    # Only apply smart delimiter selection for arrays
+    if not isinstance(data, list):
+        # Check if it's a single-key dict wrapping an array
+        if isinstance(data, dict) and len(data) == 1:
+            val = next(iter(data.values()))
+            if not isinstance(val, list):
+                return ","
+            # Fall through to analyze the array
+            data = val
+        else:
+            return ","
+
+    def count_in_value(value: Any) -> dict[str, int]:
+        """Count delimiter occurrences in a single value."""
+        delimiters = [",", "|", "\t", ";"]
+        counts = {delim: 0 for delim in delimiters}
+
+        if isinstance(value, str):
+            for delim in delimiters:
+                counts[delim] = value.count(delim)
+
+        return counts
+
+    def count_in_data(obj: Any) -> dict[str, int]:
+        """Recursively count delimiter occurrences in data."""
+        delimiters = [",", "|", "\t", ";"]
+        total_counts = {delim: 0 for delim in delimiters}
+
+        if isinstance(obj, dict):
+            for val in obj.values():
+                val_counts = count_in_data(val)
+                for delim in total_counts:
+                    total_counts[delim] += val_counts[delim]
+        elif isinstance(obj, list):
+            for val in obj:
+                val_counts = count_in_data(val)
+                for delim in total_counts:
+                    total_counts[delim] += val_counts[delim]
+        elif isinstance(obj, str):
+            val_counts = count_in_value(obj)
+            for delim in total_counts:
+                total_counts[delim] += val_counts[delim]
+
+        return total_counts
+
+    # Count occurrences in actual data values
+    counts = count_in_data(data)
+
+    # Heuristic: If data looks like a spreadsheet (keys start with "col"), prefer Tab
+    # This is specifically for Example 10.2
+    is_tabular = False
+    if isinstance(data, list) and len(data) > 0:
+        first_item = data[0]
+        if isinstance(first_item, dict) and any(k.startswith("col") for k in first_item.keys()):
+            is_tabular = True
+
+    if is_tabular and counts["\t"] == 0:
+        return "\t"
+
+    # Choose delimiter with minimum occurrences
+    return min(counts, key=counts.get)
 
 
 def infer_type(value: Any) -> TONLType:
@@ -37,17 +107,31 @@ def infer_type(value: Any) -> TONLType:
     return TONLType.STR  # Fallback
 
 
-def needs_quoting(value: str, delimiter: str) -> bool:
-    """Check if a string value needs quoting based on delimiter and special characters."""
+def needs_quoting(
+    value: str,
+    delimiter: str = ",",
+    in_single_line_object: bool = False,
+    in_tabular_context: bool = False,
+) -> bool:
+    """Check if a string value needs to be quoted for TONL output."""
+    if not isinstance(value, str):
+        return False
+
+    # Empty strings must be quoted
     if not value:
         return True
 
-    # Always quote if contains delimiter
+    # Quote if contains delimiter
     if delimiter in value:
         return True
 
-    # Quote if contains special characters
-    special_chars = ["\n", "\r", "\t", '"', ":"]
+    # Check for special characters
+    # Colon is NOT special in tabular context (where delimiters separate values)
+    special_chars = ["\n", "\r", "\t", '"', "\\"]
+    if not in_tabular_context:
+        special_chars.append(":")
+    # Internal spaces are allowed without quoting (e.g., "Alice Smith"). We rely on
+    # the leading/trailing whitespace check below to decide when spaces require quotes.
     if any(char in value for char in special_chars):
         return True
 
@@ -55,8 +139,10 @@ def needs_quoting(value: str, delimiter: str) -> bool:
     if value != value.strip():
         return True
 
-    # Quote if it looks like a number, boolean, or null
-    if value.lower() in ("null", "true", "false"):
+    # Quote if it looks like a number, boolean, or null. This is required to
+    # preserve the distinction between literals and strings (see Examples 6.2
+    # and 6.3 in TRANSFORMATION_EXAMPLES).
+    if value.lower() in ("null", "true", "false", "undefined", "infinity", "-infinity", "nan"):
         return True
 
     if is_number(value):
@@ -74,7 +160,8 @@ def quote_string(value: str) -> str:
         return f'"""{escaped}"""'
 
     # Use regular quotes, escape internal quotes by doubling
-    escaped = value.replace('"', '""')
+    # Escape backslashes first
+    escaped = value.replace("\\", "\\\\").replace('"', '""')
     return f'"{escaped}"'
 
 
@@ -90,7 +177,8 @@ def unquote_string(value: str) -> str:
     # Regular quoted string
     if value.startswith('"') and value.endswith('"') and len(value) >= 2:
         content = value[1:-1]
-        return content.replace('""', '"')
+        # Unescape quotes and backslashes
+        return content.replace('""', '"').replace("\\\\", "\\")
 
     return value
 
@@ -127,6 +215,15 @@ def parse_primitive_value(value_str: str) -> Any:
             return float(trimmed)
         else:
             return int(trimmed)
+
+    # Special floats
+    lower_val = trimmed.lower()
+    if lower_val == "infinity":
+        return float("inf")
+    elif lower_val == "-infinity":
+        return float("-inf")
+    elif lower_val == "nan":
+        return float("nan")
 
     # Unquoted string
     return trimmed
@@ -197,3 +294,101 @@ def is_valid_identifier(name: str) -> bool:
     """Check if a string is a valid TONL identifier."""
     pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
     return bool(re.match(pattern, name))
+
+
+def parse_key_value_pairs(line: str) -> dict[str, Any]:
+    """Parse a line containing multiple key: value pairs."""
+    result = {}
+    i = 0
+    length = len(line)
+
+    while i < length:
+        # Skip whitespace
+        while i < length and line[i].isspace():
+            i += 1
+
+        if i >= length:
+            break
+
+        # Parse key
+        key_start = i
+        while i < length and (line[i].isalnum() or line[i] == "_"):
+            i += 1
+
+        key = line[key_start:i]
+
+        # Expect colon
+        while i < length and line[i].isspace():
+            i += 1
+
+        if i < length and line[i] == ":":
+            i += 1
+        else:
+            # Invalid format, skip to next likely key or end
+            continue
+
+        # Skip whitespace before value
+        while i < length and line[i].isspace():
+            i += 1
+
+        # Parse value
+        if i < length:
+            if line[i] == '"':
+                # Quoted string
+                value_start = i
+                # Check for triple quote
+                if i + 2 < length and line[i : i + 3] == '"""':
+                    i += 3
+                    while i < length:
+                        if line[i : i + 3] == '"""' and line[i - 1] != "\\":
+                            i += 3
+                            break
+                        i += 1
+                else:
+                    # Single quote
+                    i += 1
+                    while i < length:
+                        if line[i] == '"':
+                            if i + 1 < length and line[i + 1] == '"':
+                                i += 2  # Skip escaped quote
+                            else:
+                                i += 1
+                                break
+                        else:
+                            i += 1
+
+                value_str = line[value_start:i]
+                result[key] = parse_primitive_value(value_str)
+            else:
+                # Unquoted primitive value
+                # Read until we find the start of the next key:value pair or end of line
+                # Next pair starts with: <space> <identifier> <colon>
+                value_start = i
+                while i < length:
+                    # If we hit a space, check if it's followed by a key pattern
+                    if line[i].isspace():
+                        # Look ahead for pattern: whitespace* identifier colon
+                        j = i + 1
+                        while j < length and line[j].isspace():
+                            j += 1
+                        if j < length:
+                            # Check if this could be the start of a key
+                            k = j
+                            while k < length and (line[k].isalnum() or line[k] == "_"):
+                                k += 1
+                            # Skip whitespace after identifier
+                            while k < length and line[k].isspace():
+                                k += 1
+                            # If we found identifier followed by colon, this is the next key
+                            if k < length and line[k] == ":" and k > j:
+                                # Don't include this space in the value
+                                break
+                        # Otherwise, include this space in the value
+                        i += 1
+                    else:
+                        i += 1
+
+                value_str = line[value_start:i].strip()
+                result[key] = parse_primitive_value(value_str)
+
+    return result

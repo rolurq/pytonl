@@ -24,13 +24,15 @@ class TestDecoder:
     def test_decode_uniform_array(self):
         """Test decoding uniform object array."""
         result = decode(UNIFORM_ARRAY_TONL)
-        assert len(result) == 2
-        assert result[0]["id"] == 1
-        assert result[0]["name"] == "Alice"
-        assert result[0]["role"] == "admin"
-        assert result[1]["id"] == 2
-        assert result[1]["name"] == "Bob"
-        assert result[1]["role"] == "user"
+        # Top-level key should be preserved (matches JSON structure)
+        assert "users" in result
+        assert len(result["users"]) == 2
+        assert result["users"][0]["id"] == 1
+        assert result["users"][0]["name"] == "Alice"
+        assert result["users"][0]["role"] == "admin"
+        assert result["users"][1]["id"] == 2
+        assert result["users"][1]["name"] == "Bob"
+        assert result["users"][1]["role"] == "user"
 
     def test_decode_primitive_arrays(self):
         """Test decoding primitive arrays."""
@@ -48,23 +50,28 @@ class TestDecoder:
     def test_decode_special_characters(self):
         """Test decoding values with special characters."""
         result = decode(SPECIAL_CHARS_TONL)
-        assert result[0]["name"] == "Item, A"
-        assert result[0]["price"] == 99.99
-        assert result[1]["name"] == "Item B"
-        assert result[1]["price"] == 149.99
+        # SPECIAL_CHARS_TONL encodes an array under the "items" key
+        assert "items" in result
+        assert result["items"][0]["name"] == "Item, A"
+        assert result["items"][0]["price"] == 99.99
+        assert result["items"][1]["name"] == "Item B"
+        assert result["items"][1]["price"] == 149.99
 
     def test_decode_empty_array(self):
         """Test decoding empty array."""
         tonl = "#version 1.0\nitems[0]:"
         result = decode(tonl)
-        # Empty array may be None or empty list depending on implementation
-        assert result is None or result == []
+        # items[0]: represents an empty array under key "items"
+        assert isinstance(result, dict)
+        assert result["items"] == []
 
     def test_decode_null_value(self):
         """Test decoding null value."""
         tonl = "#version 1.0\nvalue: null"
         result = decode(tonl)
-        assert result is None
+        # "value: null" decodes to an object with key "value"
+        assert isinstance(result, dict)
+        assert result["value"] is None
 
     def test_decode_booleans(self):
         """Test decoding boolean values."""
@@ -89,16 +96,21 @@ class TestDecoder:
 #delimiter |
 items[3]: a | b | c"""
         result = decode(tonl)
-        assert result == ["a", "b", "c"]
+        # Primitive array is encoded under the key "items"
+        assert isinstance(result, dict)
+        assert result["items"] == ["a", "b", "c"]
 
     def test_decode_quoted_strings(self):
         """Test decoding quoted strings."""
         tonl = '#version 1.0\nname: "Alice Smith"'
         result = decode(tonl)
-        assert result == "Alice Smith"
+        # Decodes to an object with key "name"
+        assert isinstance(result, dict)
+        assert result["name"] == "Alice Smith"
 
     def test_decode_escaped_quotes(self):
         """Test decoding strings with escaped quotes."""
         tonl = '#version 1.0\nname: "Say ""hello"""'
         result = decode(tonl)
-        assert result == 'Say "hello"'
+        assert isinstance(result, dict)
+        assert result["name"] == 'Say "hello"'

@@ -3,8 +3,12 @@
 import re
 from typing import Any
 
-from .types import ColumnDef, DecodeOptions, JSONValue, TONLType
-from .utils import parse_primitive_value, split_line_by_delimiter
+from .types import DecodeOptions, JSONValue
+from .utils import (
+    parse_key_value_pairs,
+    parse_primitive_value,
+    split_line_by_delimiter,
+)
 
 
 class TONLDecoder:
@@ -13,22 +17,42 @@ class TONLDecoder:
     def __init__(self, options: DecodeOptions = None):
         """Initialize decoder with options."""
         self.options = options or DecodeOptions()
-        self.version = "1.0"
-        self.delimiter = ","
+        self.delimiter = ","  # Default delimiter
 
     def decode(self, tonl_str: str) -> JSONValue:
         """Decode TONL string to Python object."""
-        lines = tonl_str.split("\n")
+        lines = tonl_str.splitlines()
 
-        # Parse headers
-        data_start = self._parse_headers(lines)
+        # Parse headers first to get version and delimiter
+        start_idx = self._parse_headers(lines)
 
-        # Parse data section
-        data_lines = lines[data_start:]
-        if not data_lines or not any(line.strip() for line in data_lines):
-            return None
+        # Parse data
+        data_lines = lines[start_idx:]
+        if not data_lines:
+            return {}
 
-        result, _ = self._parse_lines(data_lines, 0)
+        # Parse all top-level items
+        result = {}
+        i = 0
+        while i < len(data_lines):
+            line = data_lines[i]
+            if not line.strip():
+                i += 1
+                continue
+
+            sub_result, sub_consumed = self._parse_lines(data_lines[i:], 0)
+
+            if sub_result is not None:
+                if isinstance(sub_result, dict):
+                    result.update(sub_result)
+                elif not result:
+                    # If result is empty and we got a non-dict, this is the single result
+                    # (e.g. top-level array or primitive)
+                    # But if we have multiple non-dict items, that's invalid JSON/TONL structure
+                    # unless we treat them as a list? No, TONL top-level is usually object.
+                    result = sub_result
+
+            i += sub_consumed
 
         # Unwrap top-level single-key results based on value type
         # - "root{...}:" -> unwrap to get {...}
@@ -41,54 +65,61 @@ class TONLDecoder:
 
             # Unwrap if:
             # 1. Key is 'root' (standard unwrapping)
-            # 2. Value is an array (arrays are unwrapped)
-            # 3. Value is a primitive (single values are unwrapped)
-            # Don't unwrap if value is an object/dict (meaningful structure)
-            if key == "root" or isinstance(value, list) or not isinstance(value, (dict, list)):
+            # 2. Value is a primitive (single values are unwrapped) - wait, if key is not root, we shouldn't unwrap primitive either?
+            #    If I have {"val": 1}, TONL is "val: 1". Decoder -> {"val": 1}. Should return {"val": 1}.
+            #    If I have 1, TONL is "root: 1". Decoder -> {"root": 1}. Should return 1.
+            # So ONLY unwrap if key is "root".
+
+            if key == "root":
                 return value
 
         return result
 
     def _parse_headers(self, lines: list[str]) -> int:
-        """Parse header lines and return index of first data line."""
-        data_start = 0
-
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-
-            # Skip empty lines
-            if not stripped:
-                data_start = i + 1
+        """Parse headers and return index of first data line."""
+        i = 0
+        for line_idx, original_line in enumerate(lines):
+            line = original_line.strip()
+            if not line:
+                i += 1
                 continue
 
-            # Skip schema directives
-            if stripped.startswith("@"):
-                data_start = i + 1
-                continue
+            if line.startswith("#version"):
+                # Version check could be added here
+                pass
+            elif line.startswith("#delimiter"):
+                # Use original line to preserve whitespace delimiter
+                # But we need to handle indentation? Headers shouldn't be indented.
+                # Check if original_line starts with #delimiter (ignoring leading whitespace?)
+                # No, headers must be at start of line?
+                # Let's assume headers are not indented or we strip leading only.
 
-            # Parse header directives
-            if stripped.startswith("#"):
-                match = re.match(r"^#(\w+)\s+(.+)$", stripped)
-                if match:
-                    key = match.group(1)
-                    value = match.group(2)
+                stripped_start = original_line.lstrip()
+                if stripped_start.startswith("#delimiter"):
+                    raw_val = stripped_start[10:]
+                    # Strip newline only
+                    val_part = raw_val.rstrip("\n").rstrip("\r")
 
-                    if key == "version":
-                        self.version = value
-                    elif key == "delimiter":
-                        if value == "\\t":
+                    if not val_part.strip():
+                        # If empty after strip, check if it contained tab
+                        if "\t" in val_part:
                             self.delimiter = "\t"
-                        elif value in [",", "|", ";"]:
-                            self.delimiter = value
-
-                data_start = i + 1
+                    else:
+                        delim = val_part.strip()
+                        if delim == "\\t":
+                            self.delimiter = "\t"
+                        else:
+                            self.delimiter = delim
+            elif line.startswith("@"):
+                # Directive - ignore for now
+                pass
             else:
-                # First non-header line
+                # Not a header
                 break
+            i += 1
+        return i
 
-        return data_start
-
-    def _parse_lines(self, lines: list[str], start_indent: int) -> tuple[Any, int]:
+    def _parse_lines(self, lines: list[str], indent_level: int) -> tuple[Any, int]:
         """Parse lines at a given indentation level."""
         if not lines:
             return None, 0
@@ -98,12 +129,14 @@ class TONLDecoder:
         # Parse the first line to determine structure
         stripped = first_line.strip()
 
-        # Try to parse as object/array header
-        header_info = self._parse_header(stripped)
+        # Check for block header (Object or Array)
+        # Matches: key{cols}: or key[N]: or key[N]{cols}:
+        header_match = self._parse_header(stripped)
 
-        if header_info:
-            result, consumed = self._parse_block(lines, header_info)
-            key = header_info["key"]
+        if header_match:
+            # It's a block (object or array)
+            result, consumed = self._parse_block(lines, header_match)
+            key = header_match["key"]
 
             # If the key is an array index like "[0]", return result unwrapped
             # Otherwise wrap in {key: result} dict
@@ -111,57 +144,102 @@ class TONLDecoder:
                 return result, consumed
             else:
                 return {key: result}, consumed
-        else:
-            # Simple key-value pair
-            return self._parse_key_value(stripped), 1
+
+        # Check for key-value pair
+        kv_match = self._parse_key_value(stripped)
+        if kv_match:
+            key, value_str = kv_match
+
+            # Handle multiline triple-quoted string values
+            stripped_value = value_str.strip()
+            if stripped_value.startswith('"""') and not stripped_value.endswith('"""'):
+                # Accumulate subsequent lines until we find an unescaped closing """
+                combined = stripped_value
+                lines_consumed = 1
+
+                def has_unescaped_triple_quote(s: str) -> bool:
+                    idx = 0
+                    while True:
+                        idx = s.find('"""', idx)
+                        if idx == -1:
+                            return False
+                        # Closing triple quote is not escaped with a backslash
+                        if idx == 0 or s[idx - 1] != "\\":
+                            return True
+                        idx += 3
+
+                i = 1
+                while i < len(lines):
+                    next_line = lines[i]
+                    combined += "\n" + next_line
+                    lines_consumed += 1
+                    if has_unescaped_triple_quote(next_line):
+                        break
+                    i += 1
+
+                value = parse_primitive_value(combined)
+                return {key: value}, lines_consumed
+
+            # Regular single-line primitive value
+            value = parse_primitive_value(value_str)
+            return {key: value}, 1
+
+        # Check for primitive array (implicit key from context?)
+        # No, top level primitive array usually has key[N]: ...
+        # If we are here, it might be a continuation or invalid line
+        return None, 1
 
     def _parse_header(self, line: str) -> dict[str, Any] | None:
         """Parse a block header line."""
-        # Match: key[N]{cols}: or key{cols}: or key[N]:
-        # Must have either array brackets or column braces (or both)
-        # Simple "key: value" should NOT match
-        pattern = r"^([a-zA-Z_]\w*|\[\d+\])(\[\d+\])?(\{([^}]*)\})?:(.*)$"
+        # Regex for headers:
+        # Group 1: Key
+        # Group 2: Array size (optional)
+        # Group 3: Columns (optional)
+        # Group 4: Rest of line (optional)
+
+        # Pattern matches: key[size]{cols}: or key{cols}: or key[size]:
+        # Updated regex to require either [] or {} to avoid matching simple key: value
+        pattern = r"^(\w+|\[\d+\])(?:\[(\d+)\])?(?:\{([^}]*)\})?:\s*(.*)$"
         match = re.match(pattern, line)
 
-        if not match:
-            return None
+        if match:
+            key = match.group(1)
+            array_size = match.group(2)
+            columns_str = match.group(3)
+            rest = match.group(4)
 
-        key = match.group(1)
-        array_bracket = match.group(2)  # Optional [N]
-        braces = match.group(3)  # Optional {cols}
-        columns_str = match.group(4)  # Optional cols content
-        rest = match.group(5).strip()  # Content after :
+            # Must have either array brackets or column braces to be a header
+            # (Regex guarantees : at end, but we need to ensure it's not just key:)
+            if array_size is None and columns_str is None:
+                return None
 
-        # Must have either array brackets or column braces to be considered a header
-        # Otherwise it's just a simple key: value pair
-        if not array_bracket and not braces:
-            return None
+            is_array = array_size is not None
+            columns = []
+            if columns_str:
+                # Parse columns
+                col_parts = columns_str.split(",")
+                for part in col_parts:
+                    col_name = part.strip().split(":")[0]  # Ignore type hints
+                    if col_name:
+                        columns.append(col_name)
 
-        is_array = array_bracket is not None
-        array_length = int(array_bracket[1:-1]) if is_array else None
+            return {
+                "key": key,
+                "is_array": is_array,
+                "array_size": int(array_size) if array_size else None,
+                "columns": columns,
+                "rest": rest,
+            }
+        return None
 
-        # Parse column definitions
-        columns = []
-        if columns_str:
-            for col_part in columns_str.split(","):
-                col_part = col_part.strip()
-                if ":" in col_part:
-                    name, type_hint = col_part.split(":", 1)
-                    try:
-                        type_enum = TONLType(type_hint.strip())
-                    except ValueError:
-                        type_enum = None
-                    columns.append(ColumnDef(name.strip(), type_enum))
-                else:
-                    columns.append(ColumnDef(col_part, None))
-
-        return {
-            "key": key,
-            "is_array": is_array,
-            "array_length": array_length,
-            "columns": columns,
-            "rest": rest,
-        }
+    def _parse_key_value(self, line: str) -> tuple[str, str] | None:
+        """Parse a key-value pair line."""
+        # Match regular keys (word characters) or array indices like [0]
+        pattern = r"^(\w+|\[\d+\]):\s*(.*)$"
+        match = re.match(pattern, line)
+        if match:
+            return match.group(1), match.group(2)
+        return None
 
     def _parse_block(self, lines: list[str], header_info: dict[str, Any]) -> tuple[Any, int]:
         """Parse a block (object or array)."""
@@ -169,46 +247,53 @@ class TONLDecoder:
         columns = header_info["columns"]
         rest = header_info["rest"]
 
-        # If there's content on the same line as header
+        # Calculate indentation of children
+        first_line_indent = len(lines[0]) - len(lines[0].lstrip())
+
+        # If we have content on the same line, it's a single-line block
         if rest:
-            # Single-line object or primitive array
-            if is_array and not columns:
+            if is_array:
                 # Primitive array on same line
-                values = self._parse_array_values(rest)
-                return values, 1
-            elif columns:
-                # Single-line object
-                obj = self._parse_single_line_object(rest, columns)
+                if not rest.strip():
+                    return [], 1
+                values = split_line_by_delimiter(rest, self.delimiter)
+                parsed_values = [parse_primitive_value(v) for v in values]
+                return parsed_values, 1
+            else:
+                # Single line object
+                # Parse key: value pairs from the rest of the line
+                obj = parse_key_value_pairs(rest)
                 return obj, 1
 
         # Multi-line block
-        first_line_indent = len(lines[0]) - len(lines[0].lstrip())
         lines_consumed = 1
+        result = [] if is_array else {}
 
-        if is_array and columns:
-            # Tabular array
-            result = []
-            for i in range(1, len(lines)):
-                line = lines[i]
-                line_indent = len(line) - len(line.lstrip())
+        if is_array:
+            # Check if tabular (uniform object array)
+            # If we have columns defined in header, it's tabular
+            if columns:
+                # Tabular array
+                # Each following line is a row of values
+                while lines_consumed < len(lines):
+                    line = lines[lines_consumed]
+                    line_indent = len(line) - len(line.lstrip())
 
-                # Check if still part of this block
-                if line.strip() and line_indent <= first_line_indent:
-                    break
+                    if line.strip() and line_indent <= first_line_indent:
+                        break
 
-                if line.strip():
-                    row_values = split_line_by_delimiter(line.strip(), self.delimiter)
-                    obj = {}
-                    for j, col in enumerate(columns):
-                        if j < len(row_values):
-                            obj[col.name] = parse_primitive_value(row_values[j])
-                    result.append(obj)
+                    if line.strip():
+                        row_values = split_line_by_delimiter(line.strip(), self.delimiter)
+                        obj = {}
+                        for j, col in enumerate(columns):
+                            if j < len(row_values):
+                                obj[col] = parse_primitive_value(row_values[j])
+                        result.append(obj)
 
-                lines_consumed += 1
+                    lines_consumed += 1
 
-            return result, lines_consumed
+                return result, lines_consumed
 
-        elif is_array:
             # Mixed array with indexed elements
             result = []
             i = 1
@@ -221,6 +306,13 @@ class TONLDecoder:
 
                 if line.strip():
                     sub_result, sub_consumed = self._parse_lines(lines[i:], line_indent)
+
+                    # Unwrap array item key if present (e.g. {'[0]': 'value'} -> 'value')
+                    if isinstance(sub_result, dict) and len(sub_result) == 1:
+                        key = list(sub_result.keys())[0]
+                        if key.startswith("[") and key.endswith("]"):
+                            sub_result = sub_result[key]
+
                     result.append(sub_result)
                     i += sub_consumed
                     lines_consumed += (
@@ -234,7 +326,7 @@ class TONLDecoder:
 
         else:
             # Object
-            obj = {}
+            # Parse children
             i = 1
             while i < len(lines):
                 line = lines[i]
@@ -244,49 +336,16 @@ class TONLDecoder:
                     break
 
                 if line.strip():
-                    # Parse this line
-                    sub_header = self._parse_header(line.strip())
-                    if sub_header:
-                        sub_result, sub_consumed = self._parse_block(lines[i:], sub_header)
-                        obj[sub_header["key"]] = sub_result
-                        i += sub_consumed
-                        lines_consumed += sub_consumed
-                    else:
-                        # Key-value pair
-                        kv_result = self._parse_key_value(line.strip())
-                        if kv_result:
-                            obj.update(kv_result)
-                        i += 1
-                        lines_consumed += 1
+                    sub_result, sub_consumed = self._parse_lines(lines[i:], line_indent)
+                    if isinstance(sub_result, dict):
+                        result.update(sub_result)
+                    i += sub_consumed
+                    lines_consumed += sub_consumed
                 else:
                     i += 1
                     lines_consumed += 1
 
-            return obj, lines_consumed
-
-    def _parse_key_value(self, line: str) -> dict[str, Any] | None:
-        """Parse a simple key: value line."""
-        match = re.match(r"^([a-zA-Z_]\w*|\[\d+\]):\s*(.*)$", line)
-        if match:
-            key = match.group(1)
-            value_str = match.group(2)
-            value = parse_primitive_value(value_str)
-            return {key: value}
-        return None
-
-    def _parse_array_values(self, line: str) -> list[Any]:
-        """Parse array values from a line."""
-        values = split_line_by_delimiter(line, self.delimiter)
-        return [parse_primitive_value(v) for v in values]
-
-    def _parse_single_line_object(self, line: str, columns: list[ColumnDef]) -> dict[str, Any]:
-        """Parse a single-line object with key: value pairs."""
-        obj = {}
-        # Split by key: value pattern
-        pairs = re.findall(r"([a-zA-Z_]\w*):\s*([^:]+?)(?=\s+[a-zA-Z_]\w*:|$)", line)
-        for key, value in pairs:
-            obj[key.strip()] = parse_primitive_value(value.strip())
-        return obj
+            return result, lines_consumed
 
 
 def decode(tonl_str: str, options: DecodeOptions = None) -> JSONValue:

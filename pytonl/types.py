@@ -31,7 +31,6 @@ class Delimiter(Enum):
 class EncodeOptions:
     """Options for encoding JSON to TONL."""
 
-    delimiter: str = ","
     include_types: bool = False
     indent: int = 2
     version: str = "1.0"
