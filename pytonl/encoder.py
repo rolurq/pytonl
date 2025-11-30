@@ -10,11 +10,11 @@ from .utils import infer_type, needs_quoting, quote_string, select_best_delimite
 class TONLEncoder:
     """Encoder for converting Python objects to TONL format."""
 
-    def __init__(self, options: EncodeOptions = None):
+    def __init__(self, options: EncodeOptions):
         """Initialize encoder with options."""
-        self.options = options or EncodeOptions()
+        self.options = options
         self.indent_level = 0
-        self.delimiter = None  # Auto-selected during encoding
+        self.delimiter: str = ","  # Auto-selected during encoding
 
     def encode(self, data: JSONValue) -> str:
         """Encode Python object to TONL string."""
@@ -274,9 +274,6 @@ class TONLEncoder:
                 length += len(formatted)
             length += 1  # space separator
 
-        # print(
-        #     f"DEBUG: _should_use_multiline length={length}, threshold={self.options.single_line_threshold}, delimiter='{self.delimiter}'"
-        # )
         if length > self.options.single_line_threshold:
             return True
 
@@ -309,7 +306,8 @@ class TONLEncoder:
         return " " * (self.indent_level * self.options.indent)
 
 
-def encode(data: JSONValue, options: EncodeOptions = None) -> str:
+def encode(data: JSONValue, options: EncodeOptions | None = None) -> str:
     """Convenience function to encode data to TONL format."""
+    options = options or EncodeOptions()
     encoder = TONLEncoder(options)
     return encoder.encode(data)

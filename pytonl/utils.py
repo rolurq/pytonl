@@ -73,7 +73,7 @@ def select_best_delimiter(data: JSONValue) -> str:
         return "\t"
 
     # Choose delimiter with minimum occurrences
-    return min(counts, key=counts.get)
+    return min(counts.keys(), key=counts.get)
 
 
 def infer_type(value: Any) -> TONLType:

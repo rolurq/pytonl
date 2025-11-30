@@ -15,7 +15,7 @@ from .utils import (
 class TONLDecoder:
     """Decoder for converting TONL format to Python objects."""
 
-    def __init__(self, options: DecodeOptions = None):
+    def __init__(self, options: DecodeOptions | None = None):
         """Initialize decoder with options."""
         self.options = options or DecodeOptions()
         self.delimiter = ","  # Default delimiter
@@ -361,7 +361,7 @@ class TONLDecoder:
             return result, lines_consumed
 
 
-def decode(tonl_str: str, options: DecodeOptions = None) -> JSONValue:
+def decode(tonl_str: str, options: DecodeOptions | None = None) -> JSONValue:
     """Convenience function to decode TONL string to Python object."""
     decoder = TONLDecoder(options)
     return decoder.decode(tonl_str)
