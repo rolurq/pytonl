@@ -6,7 +6,9 @@ Each test verifies that the encoder produces exact TONL output as documented.
 
 import math
 
-from pytonl import EncodeOptions, decode, encode
+import pytest
+
+from pytonl import DecodeOptions, EncodeOptions, decode, encode
 
 
 class TestSimpleTypes:
@@ -18,7 +20,7 @@ class TestSimpleTypes:
         tonl = encode(data)
         assert (
             """#version 1.0
-root{string,number,float,boolean,null_value}: string: hello number: 42 float: 3.14 boolean: true null_value: null"""
+root{string,number,float,boolean,null_value}: string: hello number: 42 float: 3.14 boolean: true null_value: null"""  # noqa: E501
             == tonl
         )
         assert decode(tonl) == data
@@ -81,7 +83,7 @@ class TestComplexObjects:
         # Encoder chooses inline formatting for the inner profile object while
         # keeping the outer user block multi-line.
         assert (
-            "#version 1.0\nuser{name,profile}:\n  name: Alice Smith\n  profile{age,city}: age: 30 city: New York"
+            "#version 1.0\nuser{name,profile}:\n  name: Alice Smith\n  profile{age,city}: age: 30 city: New York"  # noqa: E501
             == tonl
         )
         assert decode(tonl) == data
@@ -205,7 +207,7 @@ class TestNestedStructures:
         # For deep nesting, the encoder keeps the innermost object (level4)
         # single-line while preserving the overall hierarchy.
         assert (
-            "#version 1.0\nlevel1{level2}:\n  level2{level3}:\n    level3{level4}:\n      level4{level5}: level5: deep value"
+            "#version 1.0\nlevel1{level2}:\n  level2{level3}:\n    level3{level4}:\n      level4{level5}: level5: deep value"  # noqa: E501
             == tonl
         )
         assert decode(tonl) == data
@@ -300,7 +302,7 @@ items[2]{name,price}:
         # Expect exact TONL as documented in TRANSFORMATION_EXAMPLES (including
         # correct escaping of internal quotes and triple-quotes).
         assert (
-            '#version 1.0\nroot{quote1,quote2,triple}:\n  quote1: "She said ""hello"""\n  quote2: "It\'s a ""test"""\n  triple: """Has \\""" triple quotes"""'
+            '#version 1.0\nroot{quote1,quote2,triple}:\n  quote1: "She said ""hello"""\n  quote2: "It\'s a ""test"""\n  triple: """Has \\""" triple quotes"""'  # noqa: E501
             == tonl
         )
         assert decode(tonl) == data
@@ -322,7 +324,7 @@ items[2]{name,price}:
         tonl = encode(data)
         # All fields are primitives and fit comfortably on a single line.
         assert (
-            "#version 1.0\nroot{emoji,unicode,chinese}: emoji: Hello 👋 World 🌍 unicode: Héllo Wörld chinese: 你好世界"
+            "#version 1.0\nroot{emoji,unicode,chinese}: emoji: Hello 👋 World 🌍 unicode: Héllo Wörld chinese: 你好世界"  # noqa: E501
             == tonl
         )
         assert decode(tonl) == data
@@ -535,7 +537,7 @@ root{app,database,cache,features}:
     ttl: 3600
     provider: redis
     connection{host,port}: host: cache.example.com port: 6379
-  features{authentication,analytics,notifications}: authentication: true analytics: true notifications: false"""
+  features{authentication,analytics,notifications}: authentication: true analytics: true notifications: false"""  # noqa: E501
             == tonl
         )
         assert decode(tonl) == data
@@ -642,7 +644,7 @@ class TestTypeHints:
         # Without type hints
         tonl_no_types = encode(data, EncodeOptions(include_types=False))
         assert (
-            "#version 1.0\nuser{id,name,age,score,active}: id: 123 name: Alice age: 30 score: 95.5 active: true"
+            "#version 1.0\nuser{id,name,age,score,active}: id: 123 name: Alice age: 30 score: 95.5 active: true"  # noqa: E501
             == tonl_no_types
         )
         assert decode(tonl_no_types) == data
@@ -650,7 +652,7 @@ class TestTypeHints:
         # With type hints
         tonl_types = encode(data, EncodeOptions(include_types=True))
         assert (
-            "#version 1.0\nuser{id:u32,name:str,age:u32,score:f64,active:bool}: id: 123 name: Alice age: 30 score: 95.5 active: true"
+            "#version 1.0\nuser{id:u32,name:str,age:u32,score:f64,active:bool}: id: 123 name: Alice age: 30 score: 95.5 active: true"  # noqa: E501
             == tonl_types
         )
         assert decode(tonl_types) == data

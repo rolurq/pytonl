@@ -5,6 +5,7 @@ from typing import Any
 
 from .types import DecodeOptions, JSONValue
 from .utils import (
+    coerce_typed_value,
     parse_key_value_pairs,
     parse_primitive_value,
     split_line_by_delimiter,
@@ -63,13 +64,6 @@ class TONLDecoder:
             key = list(result.keys())[0]
             value = result[key]
 
-            # Unwrap if:
-            # 1. Key is 'root' (standard unwrapping)
-            # 2. Value is a primitive (single values are unwrapped) - wait, if key is not root, we shouldn't unwrap primitive either?
-            #    If I have {"val": 1}, TONL is "val: 1". Decoder -> {"val": 1}. Should return {"val": 1}.
-            #    If I have 1, TONL is "root: 1". Decoder -> {"root": 1}. Should return 1.
-            # So ONLY unwrap if key is "root".
-
             if key == "root":
                 return value
 
@@ -78,7 +72,7 @@ class TONLDecoder:
     def _parse_headers(self, lines: list[str]) -> int:
         """Parse headers and return index of first data line."""
         i = 0
-        for line_idx, original_line in enumerate(lines):
+        for original_line in lines:
             line = original_line.strip()
             if not line:
                 i += 1
@@ -214,20 +208,32 @@ class TONLDecoder:
                 return None
 
             is_array = array_size is not None
-            columns = []
+            columns: list[str] = []
+            type_hints: dict[str, str] = {}
             if columns_str:
-                # Parse columns
+                # Parse columns, capturing optional type hints (e.g. col:u32)
                 col_parts = columns_str.split(",")
                 for part in col_parts:
-                    col_name = part.strip().split(":")[0]  # Ignore type hints
-                    if col_name:
-                        columns.append(col_name)
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if ":" in part:
+                        name, hint = part.split(":", 1)
+                        name = name.strip()
+                        hint = hint.strip()
+                        if name:
+                            columns.append(name)
+                            if hint:
+                                type_hints[name] = hint
+                    else:
+                        columns.append(part)
 
             return {
                 "key": key,
                 "is_array": is_array,
                 "array_size": int(array_size) if array_size else None,
                 "columns": columns,
+                "type_hints": type_hints,
                 "rest": rest,
             }
         return None
@@ -245,6 +251,7 @@ class TONLDecoder:
         """Parse a block (object or array)."""
         is_array = header_info["is_array"]
         columns = header_info["columns"]
+        type_hints: dict[str, str] = header_info.get("type_hints", {})
         rest = header_info["rest"]
 
         # Calculate indentation of children
@@ -261,8 +268,9 @@ class TONLDecoder:
                 return parsed_values, 1
             else:
                 # Single line object
-                # Parse key: value pairs from the rest of the line
-                obj = parse_key_value_pairs(rest)
+                # Parse key: value pairs from the rest of the line, applying
+                # type hints in strict mode when present.
+                obj = parse_key_value_pairs(rest, type_hints=type_hints, strict=self.options.strict)
                 return obj, 1
 
         # Multi-line block
@@ -284,10 +292,15 @@ class TONLDecoder:
 
                     if line.strip():
                         row_values = split_line_by_delimiter(line.strip(), self.delimiter)
-                        obj = {}
+                        obj: dict[str, Any] = {}
                         for j, col in enumerate(columns):
                             if j < len(row_values):
-                                obj[col] = parse_primitive_value(row_values[j])
+                                raw = row_values[j]
+                                hint = type_hints.get(col)
+                                if hint and self.options.strict:
+                                    obj[col] = coerce_typed_value(raw, hint, strict=True)
+                                else:
+                                    obj[col] = parse_primitive_value(raw)
                         result.append(obj)
 
                     lines_consumed += 1

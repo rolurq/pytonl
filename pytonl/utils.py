@@ -28,7 +28,7 @@ def select_best_delimiter(data: JSONValue) -> str:
     def count_in_value(value: Any) -> dict[str, int]:
         """Count delimiter occurrences in a single value."""
         delimiters = [",", "|", "\t", ";"]
-        counts = {delim: 0 for delim in delimiters}
+        counts = dict.fromkeys(delimiters, 0)
 
         if isinstance(value, str):
             for delim in delimiters:
@@ -39,7 +39,7 @@ def select_best_delimiter(data: JSONValue) -> str:
     def count_in_data(obj: Any) -> dict[str, int]:
         """Recursively count delimiter occurrences in data."""
         delimiters = [",", "|", "\t", ";"]
-        total_counts = {delim: 0 for delim in delimiters}
+        total_counts = dict.fromkeys(delimiters, 0)
 
         if isinstance(obj, dict):
             for val in obj.values():
