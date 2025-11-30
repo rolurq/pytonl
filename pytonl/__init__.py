@@ -27,7 +27,6 @@ __all__ = [
     "DecodeOptions",
     # Types
     "TONLType",
-    "Delimiter",
     "ColumnDef",
     "JSONValue",
     # Version
