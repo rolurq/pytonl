@@ -10,7 +10,6 @@ from .encoder import TONLEncoder, encode
 from .types import (
     ColumnDef,
     DecodeOptions,
-    Delimiter,
     EncodeOptions,
     JSONValue,
     TONLType,

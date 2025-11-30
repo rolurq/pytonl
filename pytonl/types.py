@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 
 class TONLType(Enum):
@@ -18,21 +18,13 @@ class TONLType(Enum):
     LIST = "list"
 
 
-class Delimiter(Enum):
-    """Supported delimiters for TONL format."""
-
-    COMMA = ","
-    PIPE = "|"
-    SEMICOLON = ";"
-    TAB = "\t"
-
-
 @dataclass
 class EncodeOptions:
     """Options for encoding JSON to TONL."""
 
     include_types: bool = False
     indent: int = 2
+    delimiter: Literal[",", "|", ";", "\t"] | None = None
     version: str = "1.0"
     single_line_threshold: int = 80
 
@@ -42,7 +34,6 @@ class DecodeOptions:
     """Options for decoding TONL to JSON."""
 
     strict: bool = False
-    auto_detect_delimiter: bool = True
 
 
 @dataclass

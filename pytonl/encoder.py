@@ -14,12 +14,11 @@ class TONLEncoder:
         """Initialize encoder with options."""
         self.options = options
         self.indent_level = 0
-        self.delimiter: str = ","  # Auto-selected during encoding
+        self.delimiter: str = ","  # Selected during encoding
 
     def encode(self, data: JSONValue) -> str:
         """Encode Python object to TONL string."""
-        # Auto-select best delimiter for this data
-        self.delimiter = select_best_delimiter(data)
+        self.delimiter = self.options.delimiter or select_best_delimiter(data)
 
         lines = []
 
