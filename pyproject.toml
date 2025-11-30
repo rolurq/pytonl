@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pytonl"
-version = "1.0.0"
+version = "1.0.1"
 description = "Token-Optimized Notation Language - A compact serialization format for LLM contexts"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -1,11 +1,11 @@
 """Tests for TONL decoder."""
 
-
 from pytonl import decode
 from tests.fixtures.sample_data import (
     NESTED_OBJECT_TONL,
     PRIMITIVE_ARRAYS_TONL,
     SIMPLE_OBJECT_TONL,
+    SINGLE_LINE_BIG_LIST,
     SPECIAL_CHARS_TONL,
     UNIFORM_ARRAY_TONL,
 )
@@ -82,9 +82,7 @@ class TestDecoder:
 
     def test_decode_numbers(self):
         """Test decoding various number types."""
-        tonl = (
-            "#version 1.0\nroot{int,negative,float}: int: 42 negative: -100 float: 3.14"
-        )
+        tonl = "#version 1.0\nroot{int,negative,float}: int: 42 negative: -100 float: 3.14"
         result = decode(tonl)
         assert result["int"] == 42
         assert result["negative"] == -100
@@ -114,3 +112,15 @@ items[3]: a | b | c"""
         result = decode(tonl)
         assert isinstance(result, dict)
         assert result["name"] == 'Say "hello"'
+
+    def test_decode_single_line_big_list(self):
+        """Test decoding single line big list."""
+        tonl = SINGLE_LINE_BIG_LIST
+        result = decode(tonl)
+        assert isinstance(result, dict)
+        assert result["use_and_occupancy_classification"] == [
+            "Residential",
+            "Assembly (Multipurpose Room)",
+            "Storage (Group S)",
+            "Business (Group B)",
+        ]

@@ -31,9 +31,7 @@ root{numbers,tags}:
   tags[3]: urgent, important, review"""
 
 # Nested Object
-NESTED_OBJECT_JSON = {
-    "config": {"database": {"host": "localhost", "port": 5432}, "cache": True}
-}
+NESTED_OBJECT_JSON = {"config": {"database": {"host": "localhost", "port": 5432}, "cache": True}}
 
 NESTED_OBJECT_TONL = """#version 1.0
 config{cache,database}:
@@ -75,3 +73,8 @@ TYPE_TEST_JSON = {
     "string_value": "hello world",
     "null_value": None,
 }
+
+SINGLE_LINE_BIG_LIST = """#version 1.0
+root{use_and_occupancy_classification}
+  use_and_occupancy_classification[4]:
+    Residential, Assembly (Multipurpose Room), Storage (Group S), Business (Group B)"""

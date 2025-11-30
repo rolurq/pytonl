@@ -311,7 +311,8 @@ class TONLDecoder:
 
                 return result, lines_consumed
 
-            # Mixed array with indexed elements
+            # Mixed array with indexed elements, and optionally primitive arrays
+            # rendered on a separate indented line (for long single-line arrays).
             result = []
             i = 1
             while i < len(lines):
@@ -321,20 +322,34 @@ class TONLDecoder:
                 if line.strip() and line_indent <= first_line_indent:
                     break
 
-                if line.strip():
-                    sub_result, sub_consumed = self._parse_lines(lines[i:], line_indent)
+                stripped_child = line.strip()
+                if stripped_child:
+                    # If this line starts with an explicit index (e.g. "[0]: text"
+                    # or "[3]{id,name}: ..."), delegate to the generic parser so
+                    # mixed arrays keep working as before.
+                    if stripped_child.startswith("["):
+                        sub_result, sub_consumed = self._parse_lines(lines[i:], line_indent)
 
-                    # Unwrap array item key if present (e.g. {'[0]': 'value'} -> 'value')
-                    if isinstance(sub_result, dict) and len(sub_result) == 1:
-                        key = list(sub_result.keys())[0]
-                        if key.startswith("[") and key.endswith("]"):
-                            sub_result = sub_result[key]
+                        # Unwrap array item key if present (e.g. {'[0]': 'value'} -> 'value')
+                        if isinstance(sub_result, dict) and len(sub_result) == 1:
+                            key = list(sub_result.keys())[0]
+                            if key.startswith("[") and key.endswith("]"):
+                                sub_result = sub_result[key]
 
-                    result.append(sub_result)
-                    i += sub_consumed
-                    lines_consumed += (
-                        sub_consumed  # Correctly accumulate lines consumed by sub-blocks
-                    )
+                        result.append(sub_result)
+                        i += sub_consumed
+                        lines_consumed += sub_consumed
+                    else:
+                        # Primitive array values rendered on a child line, e.g.
+                        #   items[4]:
+                        #     a, b, c, d
+                        # Split this line by the current delimiter and append
+                        # each parsed primitive to the result.
+                        row_values = split_line_by_delimiter(stripped_child, self.delimiter)
+                        for raw in row_values:
+                            result.append(parse_primitive_value(raw))
+                        i += 1
+                        lines_consumed += 1
                 else:
                     i += 1
                     lines_consumed += 1
