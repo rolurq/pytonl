@@ -2,6 +2,11 @@
 
 **Token-Optimized Notation Language** - A compact serialization format designed for LLM contexts, human readability, and perfect JSON compatibility.
 
+PyTONL is a pure-Python implementation of the [TONL](https://tonl.dev/) format.
+It aims to be compatible with the official TypeScript TONL library
+(https://github.com/tonl-dev/tonl) and to follow the same transformation rules
+and semantics wherever possible.
+
 ## Features
 
 - **🎯 Token Efficient**: 32-45% smaller than JSON for LLM contexts
@@ -133,7 +138,9 @@ config{database,cache}:
 ### Types and Enums
 
 - **`TONLType`**: Enum for type hints (null, bool, u32, i32, f64, str, obj, list)
-- **`Delimiter`**: Supported delimiters (comma, pipe, semicolon, tab)
+
+The encoder currently supports the following delimiters: `","` (default),
+`"|"`, `";"`, and the tab character `"\t"`.
 
 ## Documentation
 
@@ -145,7 +152,7 @@ For the complete specification and implementation details, see the [IMPLEMENTATI
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/pytonl.git
+git clone <repository-url>
 cd pytonl
 
 # Install in editable mode with dev dependencies
