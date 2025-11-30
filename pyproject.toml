@@ -4,22 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pytonl"
-version = "0.1.0"
+version = "1.0.0"
 description = "Token-Optimized Notation Language - A compact serialization format for LLM contexts"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
-    {name = "PyTONL Contributors"}
+    {name = "Rolando Urquiza", email = "rolurquiza@gmail.com"}
 ]
 keywords = ["serialization", "llm", "token-optimization", "json", "tonl"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = []
@@ -34,10 +31,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/pytonl"
-Documentation = "https://github.com/yourusername/pytonl/blob/main/docs/IMPLEMENTATION_REFERENCE.md"
-Repository = "https://github.com/yourusername/pytonl"
-Issues = "https://github.com/yourusername/pytonl/issues"
+Homepage = "https://github.com/rolurq/pytonl"
+Documentation = "https://github.com/rolurq/pytonl/blob/main/README.md"
+Repository = "https://github.com/rolurq/pytonl"
+Issues = "https://github.com/rolurq/pytonl/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pytonl"]
