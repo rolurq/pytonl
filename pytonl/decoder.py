@@ -363,9 +363,3 @@ class TONLDecoder:
                     lines_consumed += 1
 
             return result, lines_consumed
-
-
-def decode(tonl_str: str, options: DecodeOptions | None = None) -> JSONValue:
-    """Convenience function to decode TONL string to Python object."""
-    decoder = TONLDecoder(options)
-    return decoder.decode(tonl_str)

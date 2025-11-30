@@ -303,10 +303,3 @@ class TONLEncoder:
     def _indent(self) -> str:
         """Get current indentation string."""
         return " " * (self.indent_level * self.options.indent)
-
-
-def encode(data: JSONValue, options: EncodeOptions | None = None) -> str:
-    """Convenience function to encode data to TONL format."""
-    options = options or EncodeOptions()
-    encoder = TONLEncoder(options)
-    return encoder.encode(data)

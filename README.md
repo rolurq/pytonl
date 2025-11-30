@@ -121,7 +121,7 @@ config{database,cache}:
 ### Main Functions
 
 - **`encode(data, options=None)`**: Convert Python object to TONL string
-- **`decode(tonl_str, options=None)`**: Convert TONL string to Python object
+- **`decode(src, options=None)`**: Convert TONL string to Python object
 
 ### Classes
 
