@@ -229,6 +229,95 @@ def parse_primitive_value(value_str: str) -> Any:
     return trimmed
 
 
+def coerce_typed_value(value_str: str, type_hint: str, strict: bool) -> Any:
+    """Coerce a TONL value string to the given type hint.
+
+    This follows the rules in docs/IMPLEMENTATION_REFERENCE.md, section
+    "Type Coercion". When ``strict`` is True, invalid values raise
+    ``TypeError``; when False, we fall back to ``parse_primitive_value``.
+    """
+    hint = type_hint.strip()
+    trimmed = value_str.strip()
+
+    # Always treat explicit null as None, regardless of type hint.
+    if trimmed == "" or trimmed == "null":
+        return None
+
+    # For typed coercion we want the logical string value, so unquote when
+    # the field is syntactically quoted or triple-quoted.
+    if (trimmed.startswith('"') and trimmed.endswith('"')) or (
+        trimmed.startswith('"""') and trimmed.endswith('"""')
+    ):
+        raw = unquote_string(trimmed)
+    else:
+        raw = trimmed
+
+    # Handle explicit null type
+    if hint == "null":
+        return None
+
+    # Boolean
+    if hint == "bool":
+        if raw == "true":
+            return True
+        if raw == "false":
+            return False
+        if strict:
+            raise TypeError(f"Invalid bool: {value_str!r}")
+        return parse_primitive_value(value_str)
+
+    # Unsigned 32-bit integer
+    if hint == "u32":
+        try:
+            val = int(raw, 10)
+        except ValueError:
+            if strict:
+                raise TypeError(f"Invalid u32: {value_str!r}") from None
+            return parse_primitive_value(value_str)
+        if 0 <= val <= 0xFFFFFFFF:
+            return val
+        if strict:
+            raise TypeError(f"Invalid u32: {value_str!r}")
+        return parse_primitive_value(value_str)
+
+    # Signed 32-bit integer
+    if hint == "i32":
+        try:
+            val = int(raw, 10)
+        except ValueError:
+            if strict:
+                raise TypeError(f"Invalid i32: {value_str!r}") from None
+            return parse_primitive_value(value_str)
+        if -0x80000000 <= val <= 0x7FFFFFFF:
+            return val
+        if strict:
+            raise TypeError(f"Invalid i32: {value_str!r}")
+        return parse_primitive_value(value_str)
+
+    # 64-bit float
+    if hint == "f64":
+        low = raw.lower()
+        if low == "infinity":
+            return float("inf")
+        if low == "-infinity":
+            return float("-inf")
+        if low == "nan":
+            return float("nan")
+        try:
+            return float(raw)
+        except ValueError:
+            if strict:
+                raise TypeError(f"Invalid f64: {value_str!r}") from None
+            return parse_primitive_value(value_str)
+
+    # String
+    if hint == "str":
+        return raw
+
+    # For obj/list or unknown type hints, fall back to generic parsing.
+    return parse_primitive_value(value_str)
+
+
 def split_line_by_delimiter(line: str, delimiter: str) -> list[str]:
     """Split a TONL line by delimiter, respecting quoted strings."""
     fields = []
@@ -296,8 +385,18 @@ def is_valid_identifier(name: str) -> bool:
     return bool(re.match(pattern, name))
 
 
-def parse_key_value_pairs(line: str) -> dict[str, Any]:
-    """Parse a line containing multiple key: value pairs."""
+def parse_key_value_pairs(
+    line: str,
+    type_hints: dict[str, str] | None = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Parse a line containing multiple key: value pairs.
+
+    When ``type_hints`` is provided and ``strict`` is True, values for keys
+    present in ``type_hints`` are coerced according to their declared type
+    (u32, i32, f64, bool, str, null). Otherwise values are parsed as generic
+    primitives.
+    """
     result = {}
     i = 0
     length = len(line)
@@ -358,7 +457,10 @@ def parse_key_value_pairs(line: str) -> dict[str, Any]:
                             i += 1
 
                 value_str = line[value_start:i]
-                result[key] = parse_primitive_value(value_str)
+                if type_hints and key in type_hints and strict:
+                    result[key] = coerce_typed_value(value_str, type_hints[key], strict=True)
+                else:
+                    result[key] = parse_primitive_value(value_str)
             else:
                 # Unquoted primitive value
                 # Read until we find the start of the next key:value pair or end of line
@@ -389,6 +491,9 @@ def parse_key_value_pairs(line: str) -> dict[str, Any]:
                         i += 1
 
                 value_str = line[value_start:i].strip()
-                result[key] = parse_primitive_value(value_str)
+                if type_hints and key in type_hints and strict:
+                    result[key] = coerce_typed_value(value_str, type_hints[key], strict=True)
+                else:
+                    result[key] = parse_primitive_value(value_str)
 
     return result

@@ -655,7 +655,56 @@ class TestTypeHints:
             "#version 1.0\nuser{id:u32,name:str,age:u32,score:f64,active:bool}: id: 123 name: Alice age: 30 score: 95.5 active: true"  # noqa: E501
             == tonl_types
         )
+        # With type hints present, decoding in non-strict mode should still
+        # succeed and ignore hints for coercion.
         assert decode(tonl_types) == data
+
+    def test_9_2_type_inference(self):
+        """Example 9.2: Type Inference Chart."""
+        # Test a representative subset of the inference table.
+        test_cases = [
+            ({"val": None}, "val: null"),
+            ({"val": True}, "val: true"),
+            ({"val": False}, "val: false"),
+            ({"val": 0}, "val: 0"),
+            ({"val": 42}, "val: 42"),
+            ({"val": -1}, "val: -1"),
+            ({"val": 3.14}, "val: 3.14"),
+            ({"val": float("inf")}, "val: Infinity"),
+        ]
+
+        for data, expected_fragment in test_cases:
+            tonl = encode(data)
+            assert expected_fragment in tonl
+            assert decode(tonl) == data
+
+    def test_9_3_strict_type_validation(self):
+        """Example 9.3: Strict Type Validation."""
+        data = {
+            "users": [
+                {"id": 1, "name": "Alice", "age": 30, "verified": True},
+                {"id": 2, "name": "Bob", "age": 25, "verified": True},
+            ]
+        }
+
+        # With type hints and strict mode, valid rows should decode correctly.
+        tonl = encode(data, EncodeOptions(include_types=True))
+        assert (
+            """#version 1.0
+users[2]{id:u32,name:str,age:u32,verified:bool}:
+  1, Alice, 30, true
+  2, Bob, 25, true"""
+            == tonl
+        )
+        assert decode(tonl, DecodeOptions(strict=True)) == data
+
+        # Invalid example from the docs: "thirty" cannot be coerced to u32.
+        invalid_tonl = """#version 1.0
+users[1]{id:u32,name:str,age:u32,verified:bool}:
+  1, Alice, thirty, true"""
+
+        with pytest.raises(TypeError):
+            decode(invalid_tonl, DecodeOptions(strict=True))
 
 
 class TestDelimiterExamples:
