@@ -1,5 +1,7 @@
 """Tests for TONL decoder."""
 
+import pytest
+
 from pytonl import decode
 from tests.fixtures.sample_data import (
     NESTED_OBJECT_TONL,
@@ -97,6 +99,25 @@ items[3]: a | b | c"""
         # Primitive array is encoded under the key "items"
         assert isinstance(result, dict)
         assert result["items"] == ["a", "b", "c"]
+
+    def test_decode_rejects_tabular_row_with_wrong_delimiter(self):
+        """Test that a tabular row must contain exactly its declared columns."""
+        tonl = """#version 1.0
+users[1]{id,name,active}:
+  1001, Alice; true"""
+
+        with pytest.raises(ValueError, match="expected 3 fields, got 2"):
+            decode(tonl)
+
+    def test_decode_accepts_declared_semicolon_delimiter(self):
+        """Test decoding tabular data with an explicitly declared delimiter."""
+        tonl = """#version 1.0
+#delimiter ;
+users[1]{id,name,active}:
+  1001; Alice; true"""
+
+        result = decode(tonl)
+        assert result["users"] == [{"id": 1001, "name": "Alice", "active": True}]
 
     def test_decode_quoted_strings(self):
         """Test decoding quoted strings."""

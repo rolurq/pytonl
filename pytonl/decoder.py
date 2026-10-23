@@ -296,15 +296,20 @@ class TONLDecoder:
 
                     if line.strip():
                         row_values = split_line_by_delimiter(line.strip(), self.delimiter)
+                        if len(row_values) != len(columns):
+                            raise ValueError(
+                                "Invalid tabular row: "
+                                f"expected {len(columns)} fields, "
+                                f"got {len(row_values)}"
+                            )
                         obj: dict[str, Any] = {}
                         for j, col in enumerate(columns):
-                            if j < len(row_values):
-                                raw = row_values[j]
-                                hint = type_hints.get(col)
-                                if hint and self.options.strict:
-                                    obj[col] = coerce_typed_value(raw, hint, strict=True)
-                                else:
-                                    obj[col] = parse_primitive_value(raw)
+                            raw = row_values[j]
+                            hint = type_hints.get(col)
+                            if hint and self.options.strict:
+                                obj[col] = coerce_typed_value(raw, hint, strict=True)
+                            else:
+                                obj[col] = parse_primitive_value(raw)
                         result.append(obj)
 
                     lines_consumed += 1
